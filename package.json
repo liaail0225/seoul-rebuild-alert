@@ -1,0 +1,24 @@
+{
+  "name": "seoul-rebuild-alert",
+  "version": "1.0.0",
+  "description": "서울 재건축·정비사업 추적 및 텔레그램 알리미",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "daily": "node src/jobs/daily.js",
+    "weekly": "node src/jobs/weekly.js",
+    "botpoll": "node src/jobs/botpoll.js",
+    "backup": "node src/jobs/backup.js",
+    "import-excel": "node scripts/importExcel.js",
+    "test": "node --test test/*.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "cheerio": "^1.0.0",
+    "iconv-lite": "^0.6.3",
+    "pdf-parse": "^1.1.1",
+    "fflate": "^0.8.2",
+    "xlsx": "^0.18.5"
+  }
+}
