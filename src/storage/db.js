@@ -7,9 +7,24 @@ export const supabase = createClient(env.supabaseUrl, env.supabaseKey, {
   auth: { persistSession: false },
 });
 
+const NUL_CHAR = String.fromCharCode(0);
+
 function ok({ data, error }) {
   if (error) throw new Error(`DB 오류: ${error.message}`);
   return data;
+}
+
+// Postgres text 컬럼은 NUL 바이트를 저장할 수 없음(PDF/HWPX 추출 텍스트에 종종 섞임).
+// 쓰기 경로 전체에서 공통 적용해 향후 어떤 수집기가 추가돼도 같은 오류가 재발하지 않게 함.
+function sanitize(value) {
+  if (typeof value === 'string') return value.split(NUL_CHAR).join('');
+  if (Array.isArray(value)) return value.map(sanitize);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = sanitize(v);
+    return out;
+  }
+  return value;
 }
 
 // ---------- projects ----------
@@ -25,7 +40,7 @@ export async function getAllProjects() {
 
 export async function upsertProject(p) {
   return ok(await supabase.from('projects')
-    .upsert(p, { onConflict: 'source_key' })
+    .upsert(sanitize(p), { onConflict: 'source_key' })
     .select().single());
 }
 
@@ -37,7 +52,7 @@ export async function updateProjectStage(id, stage, stageRaw) {
 
 // ---------- stage_history ----------
 export async function insertStageChange(change) {
-  return ok(await supabase.from('stage_history').insert(change).select().single());
+  return ok(await supabase.from('stage_history').insert(sanitize(change)).select().single());
 }
 
 export async function getStageChangesSince(isoDate) {
@@ -54,7 +69,7 @@ export async function noticeExists(url) {
 }
 
 export async function insertNotice(n) {
-  return ok(await supabase.from('notices').insert(n).select().single());
+  return ok(await supabase.from('notices').insert(sanitize(n)).select().single());
 }
 
 export async function getNoticesSince(isoDate) {
@@ -69,7 +84,7 @@ export async function articleExists(url) {
 }
 
 export async function insertArticle(a) {
-  return ok(await supabase.from('articles').insert(a).select().single());
+  return ok(await supabase.from('articles').insert(sanitize(a)).select().single());
 }
 
 export async function getArticlesSince(isoDate) {
@@ -90,7 +105,7 @@ export async function getWatchlist() {
 
 export async function upsertWatchItem(item) {
   return ok(await supabase.from('watchlist')
-    .upsert(item, { onConflict: 'raw_name' }).select().single());
+    .upsert(sanitize(item), { onConflict: 'raw_name' }).select().single());
 }
 
 export async function deleteWatchItem(id) {
@@ -99,7 +114,7 @@ export async function deleteWatchItem(id) {
 
 // ---------- ai_analyses ----------
 export async function insertAiAnalysis(a) {
-  return ok(await supabase.from('ai_analyses').insert(a).select().single());
+  return ok(await supabase.from('ai_analyses').insert(sanitize(a)).select().single());
 }
 
 export async function getAiCostForMonth(yyyymm) {
@@ -125,7 +140,7 @@ export async function alertAlreadySent(alertType, contentHash) {
 
 export async function recordAlert(a) {
   return ok(await supabase.from('alerts')
-    .upsert(a, { onConflict: 'alert_type,content_hash' }).select().single());
+    .upsert(sanitize(a), { onConflict: 'alert_type,content_hash' }).select().single());
 }
 
 export async function getFailedAlerts() {
@@ -141,7 +156,7 @@ export async function finishRun(id, { status, itemsNew = 0, errorMessage = null 
   return ok(await supabase.from('collection_runs')
     .update({
       finished_at: new Date().toISOString(),
-      status, items_new: itemsNew, error_message: errorMessage,
+      status, items_new: itemsNew, error_message: errorMessage ? sanitize(errorMessage) : null,
     }).eq('id', id).select().single());
 }
 

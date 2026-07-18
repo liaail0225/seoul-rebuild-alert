@@ -15,6 +15,7 @@ async function chat(messages, { model = DEFAULT_MODEL, maxTokens = 700 } = {}) {
     body: JSON.stringify({
       model, messages, max_completion_tokens: maxTokens,
     }),
+    signal: AbortSignal.timeout(30000),
   });
   if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();

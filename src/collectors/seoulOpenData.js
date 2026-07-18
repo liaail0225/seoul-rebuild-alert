@@ -36,7 +36,7 @@ export function parseProjectListHtml(html) {
 
 async function fetchListPage(cpage) {
   const url = `${LIST_URL}?cpage=${cpage}&pageSize=${PAGE_SIZE}`;
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`정비몽땅 사업장 목록 요청 실패 (cpage=${cpage}): HTTP ${res.status}`);
   return res.text();
 }

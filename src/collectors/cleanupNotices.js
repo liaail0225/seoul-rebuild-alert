@@ -35,7 +35,7 @@ export function parseNoticeListHtml(html) {
 
 async function fetchNoticeListPage(cpage) {
   const url = `${LIST_URL}?bbsClCode=100&ctgryClCode=100&cpage=${cpage}`;
-  const res = await fetch(url, { headers: HEADERS });
+  const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`정비몽땅 고시/공고 목록 요청 실패 (cpage=${cpage}): HTTP ${res.status}`);
   return res.text();
 }
@@ -81,6 +81,7 @@ async function downloadAttachment({ flfldr, atchmnflFileName, dwldFileNm }) {
     method: 'POST',
     headers: { ...HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
+    signal: AbortSignal.timeout(20000),
   });
   if (!res.ok) throw new Error(`첨부파일 다운로드 실패: HTTP ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
@@ -104,7 +105,7 @@ async function fetchNoticeDetail({ title, url, postedAt }) {
   };
   let html;
   try {
-    const res = await fetch(url, { headers: HEADERS });
+    const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(15000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     html = await res.text();
   } catch (err) {
