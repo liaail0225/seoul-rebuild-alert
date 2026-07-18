@@ -5,7 +5,11 @@ import * as cheerio from 'cheerio';
 
 const LIST_URL = 'https://cleanup.seoul.go.kr/cleanup/bsnssttus/lscrMainIndx.do';
 const PAGE_SIZE = 200;
-const MIN_EXPECTED = 500; // 이보다 적게 파싱되면 사이트 개편으로 간주하고 throw
+const MIN_EXPECTED = 500; // 전체(필터 전) 이보다 적게 파싱되면 사이트 개편으로 간주하고 throw
+const MIN_EXPECTED_FILTERED = 200; // 재건축 필터링 후 이보다 적으면 필터 기준 자체가 잘못됐을 가능성
+
+// 서울 재건축(가족 투자 관심사)만 추적. 재개발·가로주택정비·지역주택조합·리모델링은 명시적으로 제외 (2026-07-19 사용자 확정)
+const INCLUDED_BIZ_TYPES = new Set(['재건축', '소규모재건축']);
 
 // 목록 HTML 한 페이지를 파싱하는 순수 함수 (테스트 대상)
 // 열 순서: 번호, 자치구, 사업구분, 사업장명(td.wordBreakAll), 대표지번, 진행단계, 공개자료수, 적시성, 충실도, 이동
@@ -41,7 +45,12 @@ async function fetchListPage(cpage) {
   return res.text();
 }
 
-// 전체 사업장 목록 수집. 행 수가 pageSize 미만이면 마지막 페이지로 판단.
+// 재건축/소규모재건축만 남기는 순수 필터 함수 (테스트 대상)
+export function filterReconstructionOnly(rows) {
+  return rows.filter(r => INCLUDED_BIZ_TYPES.has(r.bizType));
+}
+
+// 전체 사업장 목록 수집 후 재건축만 필터링. 행 수가 pageSize 미만이면 마지막 페이지로 판단.
 export async function collectProjects() {
   const all = [];
   for (let cpage = 1; ; cpage += 1) {
@@ -55,5 +64,11 @@ export async function collectProjects() {
       `정비몽땅 사업장 목록 파싱 결과가 비정상적으로 적음 (${all.length}건 < ${MIN_EXPECTED}건) — 사이트 구조 변경 의심`
     );
   }
-  return all;
+  const filtered = filterReconstructionOnly(all);
+  if (filtered.length < MIN_EXPECTED_FILTERED) {
+    throw new Error(
+      `재건축 필터링 후 결과가 비정상적으로 적음 (${filtered.length}건 < ${MIN_EXPECTED_FILTERED}건) — 사업구분 표기 변경 의심`
+    );
+  }
+  return filtered;
 }

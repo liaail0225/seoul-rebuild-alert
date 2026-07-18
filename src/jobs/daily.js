@@ -38,9 +38,13 @@ async function stepProjects() {
   return runCollector('seoulOpenData', async () => {
     const collected = await collectProjects();
     const existing = await db.getAllProjects();
-    const { newProjects, stageChanges, unknownStages } = diffProjects(collected, existing);
+    const { newProjects, stageChanges, unknownStages, duplicateConflicts } = diffProjects(collected, existing);
 
     if (unknownStages.length) console.warn('[stages] 미등록 단계 원문:', unknownStages.join(', '));
+    if (duplicateConflicts.length) {
+      console.warn(`[seoulOpenData] 같은 실행에서 사업장이 서로 다른 단계 값으로 중복 등장 (${duplicateConflicts.length}건, 소스 사이트 정렬 불안정 의심):`,
+        duplicateConflicts.map(c => `${c.sourceKey}: ${c.values.join(' / ')}`).join(' | '));
+    }
 
     for (const np of newProjects) {
       const row = await db.upsertProject({

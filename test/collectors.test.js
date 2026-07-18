@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { zipSync, strToU8 } from 'fflate';
 
-import { parseProjectListHtml } from '../src/collectors/seoulOpenData.js';
+import { parseProjectListHtml, filterReconstructionOnly } from '../src/collectors/seoulOpenData.js';
 import { parseNoticeListHtml, parseNoticeBodyHtml, parseAttachmentInfo } from '../src/collectors/cleanupNotices.js';
 import { stripTags, normalizeItem } from '../src/collectors/naverNews.js';
 import { extractText, extractHwpxTextFromXml } from '../src/attachments/index.js';
@@ -63,6 +63,21 @@ test('parseProjectListHtml: 열 수가 부족한 행은 건너뛴다', () => {
     </table>`;
   const rows = parseProjectListHtml(html);
   assert.equal(rows.length, 0);
+});
+
+test('filterReconstructionOnly: 재건축·소규모재건축만 남기고 재개발·지역주택·리모델링 등은 제외', () => {
+  const rows = [
+    { name: 'A', bizType: '재건축' },
+    { name: 'B', bizType: '소규모재건축' },
+    { name: 'C', bizType: '재개발(주택정비형)' },
+    { name: 'D', bizType: '재개발(도시정비형)' },
+    { name: 'E', bizType: '가로주택정비' },
+    { name: 'F', bizType: '지역주택' },
+    { name: 'G', bizType: '소규모재개발' },
+    { name: 'H', bizType: '리모델링' },
+  ];
+  const result = filterReconstructionOnly(rows);
+  assert.deepEqual(result.map(r => r.name), ['A', 'B']);
 });
 
 // ---------- cleanupNotices ----------

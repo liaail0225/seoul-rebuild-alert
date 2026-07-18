@@ -83,6 +83,20 @@ test('diffProjects: 신규·단계변화 감지', () => {
   assert.equal(stageChanges[0].newStage, '사업시행인가');
 });
 
+test('diffProjects: 같은 실행 내 중복 sourceKey는 마지막 값만 반영하고 충돌로 보고', () => {
+  const existing = [];
+  const collected = [
+    { sourceKey: 'k1', gu: '강서구', name: '서울빌라', bizType: '가로주택정비사업', stageRaw: '조합설립인가' },
+    { sourceKey: 'k1', gu: '강서구', name: '서울빌라', bizType: '가로주택정비사업', stageRaw: '사업시행계획인가' },
+  ];
+  const { newProjects, stageChanges, duplicateConflicts } = diffProjects(collected, existing);
+  assert.equal(newProjects.length, 1); // 두 번이 아니라 한 번만 신규로 잡혀야 함
+  assert.equal(newProjects[0].stage, '사업시행인가'); // 마지막 값 채택
+  assert.equal(stageChanges.length, 0);
+  assert.equal(duplicateConflicts.length, 1);
+  assert.deepEqual(duplicateConflicts[0].values, ['조합설립인가', '사업시행계획인가']);
+});
+
 test('buildDigestModel: 초기 단계는 최우선, 나머지는 일반', () => {
   const model = buildDigestModel({
     newProjects: [{ gu: '노원구', name: 'C', stage: '추진위원회' }],

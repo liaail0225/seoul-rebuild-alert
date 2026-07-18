@@ -55,8 +55,20 @@ export async function insertStageChange(change) {
   return ok(await supabase.from('stage_history').insert(sanitize(change)).select().single());
 }
 
+// Supabase REST 기본 상한(1000행)에 걸리지 않도록 페이지네이션하며 전량 조회.
+// 단일 .select() 그대로 쓰면 실제 건수와 다르게 1000건에서 조용히 잘려 보고되는 문제가 있었음(2026-07-19 발견).
+async function selectAllPaged(query) {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const page = ok(await query.range(from, from + 999));
+    out.push(...page);
+    if (page.length < 1000) break;
+  }
+  return out;
+}
+
 export async function getStageChangesSince(isoDate) {
-  return ok(await supabase.from('stage_history')
+  return selectAllPaged(supabase.from('stage_history')
     .select('*, projects(gu, name, biz_type, stage)')
     .gte('detected_at', isoDate)
     .order('detected_at', { ascending: false }));
@@ -73,7 +85,7 @@ export async function insertNotice(n) {
 }
 
 export async function getNoticesSince(isoDate) {
-  return ok(await supabase.from('notices')
+  return selectAllPaged(supabase.from('notices')
     .select('*').gte('created_at', isoDate).order('posted_at', { ascending: false }));
 }
 
@@ -88,7 +100,7 @@ export async function insertArticle(a) {
 }
 
 export async function getArticlesSince(isoDate) {
-  return ok(await supabase.from('articles')
+  return selectAllPaged(supabase.from('articles')
     .select('*').gte('created_at', isoDate).order('published_at', { ascending: false }));
 }
 
