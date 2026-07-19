@@ -105,7 +105,10 @@ async function stepNews(projects, watchlist) {
     for (const a of items) {
       if (await db.articleExists(a.url)) continue;
       const text = `${a.title}\n${a.excerpt || ''}`;
-      const matched = matchProjects(text, projects);
+      // 사업장 매칭은 제목에서만 판단한다. 요약문(특히 블로그)에는 인근 단지명을
+      // 검색노출 목적으로 나열하는 해시태그성 문구가 흔해("#목동6단지 #목동7단지 ..."),
+      // 요약문까지 포함하면 실제로는 무관한 글이 매칭되는 오탐이 실측으로 확인됨(2026-07-19).
+      const matched = matchProjects(a.title, projects);
       const signals = detectSignals(text);
       const row = await db.insertArticle({
         url: a.url, title: a.title, source: a.source,
