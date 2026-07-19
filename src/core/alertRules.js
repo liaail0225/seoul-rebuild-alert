@@ -38,17 +38,24 @@ export function buildDigestModel({ newProjects, stageChanges, notices, articles,
     // 신호 없는 고시는 다이제스트 생략 (DB 보관, /단지 명령으로 조회 가능)
   }
 
-  // 뉴스: 관심단지 또는 초기 단계 사업장 매칭 기사만 다이제스트에
+  // 뉴스: 우리가 추적하는 사업장(재건축, 서울)에 실제로 매칭된 기사만 다이제스트에 포함.
+  // 예전에는 본문에 "정비구역지정" 같은 신호 키워드만 있으면 매칭 여부와 무관하게 포함시켰는데,
+  // 이 때문에 서울/재건축과 무관한 기사(예: 인천 재개발)가 신호 키워드만 맞아 새어 들어오는
+  // 버그가 실제로 발생했다(2026-07-19). 신호는 "포함 여부"가 아니라 "우선순위"에만 쓴다.
+  let skippedUnmatchedSignals = 0;
   for (const a of articles) {
     const ids = a.matched_project_ids || [];
+    if (ids.length === 0) {
+      if (hasPrioritySignal(a.signals || [])) skippedUnmatchedSignals++;
+      continue; // 우리 사업장에 매칭 안 된 기사는 다이제스트에서 제외(수집 데이터는 보존됨)
+    }
     const isWatch = ids.some(id => watch.has(id));
     const isEarly = a.matchedEarlyStage; // 수집 시 플래그
-    if (isWatch || isEarly || hasPrioritySignal(a.signals || [])) {
-      newsForAlert.push(a);
-    }
+    newsForAlert.push({ ...a, rank: (isWatch ? 2 : 0) + (isEarly ? 1 : 0) });
   }
+  newsForAlert.sort((x, y) => y.rank - x.rank);
 
-  return { priority, otherChanges, newsForAlert };
+  return { priority, otherChanges, newsForAlert, skippedUnmatchedSignals };
 }
 
 // 텔레그램 HTML 다이제스트 렌더링

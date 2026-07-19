@@ -115,6 +115,25 @@ test('buildDigestModel: 초기 단계는 최우선, 나머지는 일반', () => 
   assert.equal(model.otherChanges.length, 1); // 이주→철거
 });
 
+test('buildDigestModel: 뉴스는 우리 사업장에 실제 매칭된 것만 포함 (신호 키워드만으론 포함 안 함)', () => {
+  const model = buildDigestModel({
+    newProjects: [],
+    stageChanges: [],
+    notices: [],
+    articles: [
+      // 우리 사업장과 무관하지만 신호 키워드가 있는 기사 — 예전엔 새어 들어왔던 케이스
+      { url: 'a1', title: '인천 신현동 정비구역 지정', matched_project_ids: [], signals: ['정비구역지정'] },
+      // 실제 매칭된 기사 — 신호가 없어도 포함되어야 함
+      { url: 'a2', title: '방배13구역 근황', matched_project_ids: [5], signals: [] },
+      // 관심단지 매칭 기사 — 우선순위 상위
+      { url: 'a3', title: '관심단지 소식', matched_project_ids: [7], signals: [] },
+    ],
+    watchProjectIds: [7],
+  });
+  assert.deepEqual(model.newsForAlert.map(a => a.url), ['a3', 'a2']); // 관심단지 매칭이 먼저
+  assert.equal(model.skippedUnmatchedSignals, 1);
+});
+
 test('renderDigest: HTML 이스케이프 + 빈 날 처리', () => {
   const empty = renderDigest(
     { priority: [], otherChanges: [], newsForAlert: [] },
