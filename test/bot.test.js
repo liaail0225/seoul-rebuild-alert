@@ -45,6 +45,17 @@ test('findProjectCandidates / pickBestProjectMatch: 이름·별칭 부분일치'
   assert.equal(pickBestProjectMatch('존재하지않는단지', projects), null);
 });
 
+test('pickBestProjectMatch: 완전 일치 별칭이 이름 길이만 우연히 가까운 다른 사업장보다 우선한다', () => {
+  // 실제 사고 사례(2026-07-19): "월계동신" 검색 시 정확히 일치하는 "월계동신아파트"가 아니라
+  // 부분 일치일 뿐인 "월계동주택재건축"이 선택됨 — project.name 전체 길이로만 비교했기 때문.
+  const projects = [
+    { id: 319, name: '월계동신아파트주택재건축정비사업조합', gu: '노원구', aliases: ['월계동신아파트', '월계동신'] },
+    { id: 320, name: '월계동주택재건축정비사업조합', gu: '노원구', aliases: ['월계동'] },
+  ];
+  assert.equal(pickBestProjectMatch('월계동신', projects)?.id, 319);
+  assert.equal(pickBestProjectMatch('월계동', projects)?.id, 320);
+});
+
 // ---------- importExcel.js ----------
 
 test('isSeoulGu: 서울 25개 자치구 판별', () => {

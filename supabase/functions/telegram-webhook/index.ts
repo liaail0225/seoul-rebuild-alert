@@ -85,13 +85,28 @@ function findProjectCandidates(query: string, projects: any[]) {
   });
 }
 
+// 사업장의 매칭 후보(이름/별칭) 중 질의어와 가장 가까운 것의 점수(작을수록 좋음).
+// 완전 일치(0)를 최우선으로 두고, 부분 포함은 길이 차이로 비교한다.
+// 예전엔 project.name 전체 길이로만 비교해서 "월계동신아파트..."(정확 별칭 일치)보다
+// "월계동주택재건축..."(부분 일치일 뿐)이 이름 길이가 우연히 더 가깝다는 이유로
+// 잘못 선택되는 버그가 실제로 있었음(2026-07-19, 사용자 신고로 발견).
+function bestMatchScore(query: string, project: any): number {
+  const q = compact(query);
+  const candidates = [project.name, ...(project.aliases || []), ...buildAliases(project.name || '')];
+  let best = Infinity;
+  for (const c of candidates) {
+    const cc = compact(c);
+    if (cc.length < 2) continue;
+    if (cc === q) return 0;
+    if (cc.includes(q) || q.includes(cc)) best = Math.min(best, Math.abs(cc.length - q.length));
+  }
+  return best;
+}
+
 function pickBestProjectMatch(query: string, projects: any[]) {
   const candidates = findProjectCandidates(query, projects);
   if (!candidates.length) return null;
-  const q = compact(query);
-  return [...candidates].sort(
-    (a, b) => Math.abs(compact(a.name).length - q.length) - Math.abs(compact(b.name).length - q.length),
-  )[0];
+  return [...candidates].sort((a, b) => bestMatchScore(query, a) - bestMatchScore(query, b))[0];
 }
 
 // ---------- 텔레그램 발송 ----------
