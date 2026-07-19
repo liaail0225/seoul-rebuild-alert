@@ -1,7 +1,8 @@
 name: botpoll
+# 2026-07-19부터 봇 명령은 Supabase Edge Function 웹훅(즉시 응답)으로 전환됨
+# (supabase/functions/telegram-webhook). Telegram은 webhook이 설정된 동안
+# getUpdates 폴링을 거부하므로 정기 스케줄은 비활성화하고 수동 실행(디버깅용)만 남긴다.
 on:
-  schedule:
-    - cron: '*/15 * * * *'   # 15분마다 봇 명령 처리
   workflow_dispatch:
 
 concurrency:
