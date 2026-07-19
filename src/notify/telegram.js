@@ -2,7 +2,7 @@
 // DRY_RUN=1 이면 콘솔 출력만
 import { createHash } from 'node:crypto';
 import { env } from '../config.js';
-import { alertAlreadySent, recordAlert } from '../storage/db.js';
+import { alertAlreadySent, recordAlert, getConfig } from '../storage/db.js';
 
 const API = () => `https://api.telegram.org/bot${env.telegramToken}`;
 const MAX_LEN = 4000; // 텔레그램 한도 4096, 여유
@@ -51,7 +51,17 @@ function splitMessage(text) {
   return parts;
 }
 
+// 다이제스트/리포트 수신자 목록. config의 allowed_chat_ids(봇 사용 허용 목록)를 그대로 재사용
+// — "봇을 쓸 수 있는 사람 = 매일 알림도 받는 사람"으로 통일해 목록을 하나만 관리한다.
+// 비어 있으면(초기 설정 전) 기본 TELEGRAM_CHAT_ID 하나로 폴백.
+async function getBroadcastTargets() {
+  const allowed = await getConfig('allowed_chat_ids', []);
+  if (Array.isArray(allowed) && allowed.length) return allowed;
+  return env.telegramChatId ? [env.telegramChatId] : [];
+}
+
 // 중복 방지 포함 발송. alertType + 내용 해시가 이미 발송됐으면 건너뜀.
+// chatId를 지정하지 않으면 allowed_chat_ids 전원에게 같은 내용을 보낸다(1인 이상 성공하면 sent 처리).
 export async function sendAlert(alertType, text, { chatId = null, dedupe = true } = {}) {
   const hash = contentHash(text);
   if (dedupe && await alertAlreadySent(alertType, hash)) {
@@ -63,26 +73,34 @@ export async function sendAlert(alertType, text, { chatId = null, dedupe = true 
     await recordAlert({ alert_type: alertType, content_hash: hash, body: text, status: 'sent', sent_at: new Date().toISOString() });
     return { dryRun: true };
   }
-  const target = chatId || env.telegramChatId;
-  if (!target) throw new Error('TELEGRAM_CHAT_ID 미설정');
-  try {
-    let firstMsgId = null;
-    for (const part of splitMessage(text)) {
-      const r = await tgCall('sendMessage', {
-        chat_id: target, text: part, parse_mode: 'HTML',
-        disable_web_page_preview: true,
-      });
-      firstMsgId = firstMsgId || r.message_id;
+  const targets = chatId ? [chatId] : await getBroadcastTargets();
+  if (!targets.length) throw new Error('발송 대상 chat_id 없음 (TELEGRAM_CHAT_ID 또는 allowed_chat_ids 설정 필요)');
+
+  let firstMsgId = null;
+  const failures = [];
+  for (const target of targets) {
+    try {
+      for (const part of splitMessage(text)) {
+        const r = await tgCall('sendMessage', {
+          chat_id: target, text: part, parse_mode: 'HTML',
+          disable_web_page_preview: true,
+        });
+        firstMsgId = firstMsgId || r.message_id;
+      }
+    } catch (e) {
+      failures.push(`${target}: ${e.message}`);
     }
-    await recordAlert({
-      alert_type: alertType, content_hash: hash, body: text,
-      status: 'sent', telegram_msg_id: firstMsgId, sent_at: new Date().toISOString(),
-    });
-    return { sent: true };
-  } catch (e) {
-    await recordAlert({ alert_type: alertType, content_hash: hash, body: text, status: 'failed' });
-    throw e;
   }
+
+  const allFailed = failures.length === targets.length;
+  await recordAlert({
+    alert_type: alertType, content_hash: hash, body: text,
+    status: allFailed ? 'failed' : 'sent', telegram_msg_id: firstMsgId,
+    sent_at: allFailed ? null : new Date().toISOString(),
+  });
+  if (failures.length) console.error('[telegram] 일부 수신자 발송 실패:', failures.join(' | '));
+  if (allFailed) throw new Error(failures.join(' | '));
+  return { sent: true, failedTargets: failures.length };
 }
 
 // 봇 명령 응답용 (중복 방지 없음, 기록 없음)

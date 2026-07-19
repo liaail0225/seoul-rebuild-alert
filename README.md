@@ -29,10 +29,12 @@ src/bot/          봇 명령어                      src/jobs/      엔트리포
 3. ✅ 관심단지 시드: `node scripts/importExcel.js` (엑셀 130건 → watchlist)
 4. ✅ 봇 허용 사용자 등록 완료
 
-### 봇 사용자를 추가로 등록하려면
+### 다른 사람도 알림을 받게 하려면
+`allowed_chat_ids`는 봇 명령 사용 권한과 매일/매주 알림 수신자를 동시에 결정한다(하나만 관리하면 됨).
 1. 해당 사람이 텔레그램에서 [@seoul_apt_rebuild_bot](https://t.me/seoul_apt_rebuild_bot)에게 `/start` 전송
-2. `https://api.telegram.org/bot<토큰>/getUpdates` 로 chat_id 확인
-3. Supabase Table Editor > `config` 테이블 > `allowed_chat_ids` 값에 그 chat_id를 배열로 추가
+2. `https://api.telegram.org/bot<토큰>/getUpdates` 로 그 사람의 chat_id 확인
+3. Supabase Table Editor > `config` 테이블 > `allowed_chat_ids` 값에 기존 목록과 함께 배열로 추가
+   (예: `[948715186, 새chat_id]`) — 다음 알림부터 등록된 사람 전원에게 동시 발송됨
 
 ## 로컬 실행
 상위 폴더의 `.env.local`을 자동으로 읽는다. `DRY_RUN=1`이면 텔레그램 대신 콘솔 출력.
