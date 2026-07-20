@@ -8,6 +8,7 @@ const BLOG_URL = 'https://openapi.naver.com/v1/search/blog.json';
 const QUERY_DELAY_MS = 200; // 배치 사이 대기 (rate limit 예방)
 const REQUEST_TIMEOUT_MS = 10000; // 개별 요청 제한시간
 const BATCH_SIZE = 4; // 동시 처리 쿼리 수 — 순수 순차 처리 시 쿼리가 많으면(관심단지 100+) 전체가 지나치게 오래 걸림
+const BATCH_HARD_TIMEOUT_MS = 20000; // 배치 전체의 강제 마감시간(아래 참고)
 const TOTAL_BUDGET_MS = 6 * 60 * 1000; // 전체 수집 시간 예산. 초과 시 남은 쿼리는 건너뛰고 경고 로그(무음 누락 금지)
 const MAX_QUERY_LEN = 20; // 이보다 긴 문자열은 검색어가 아닌 메모 텍스트로 간주해 제외 (예: 엑셀 비고란 텍스트가 섞여 들어온 경우)
 
@@ -57,6 +58,17 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// 배치 하나가 절대 BATCH_HARD_TIMEOUT_MS를 넘겨 전체 수집을 멈추지 못하게 하는 이중 안전장치.
+// searchOne에 AbortSignal.timeout이 걸려있지만, 연결 자체가 응답 없이 걸리는 특정 상황에서는
+// 실제로 풀리지 않는 경우가 실측으로 확인됨(2026-07-20, 배치 처리 중 무기한 멈춤 재발).
+// 이 race는 fetch의 abort 메커니즘과 무관하게 항상 정해진 시간 안에 다음으로 넘어가게 한다.
+function withHardTimeout(promise, ms, fallback) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 // 검색어로 부적합한 항목 제외 (순수 함수, 테스트 대상)
 // 너무 짧거나(1자) 너무 긴(메모 텍스트가 섞여 들어온 경우) 문자열은 검색어로 쓰지 않음
 export function isValidQuery(q) {
@@ -97,7 +109,16 @@ export async function collectArticles(queries) {
       break;
     }
     const batch = validQueries.slice(i, i + BATCH_SIZE);
-    const results = await Promise.all(batch.map(q => searchQuery(q).catch(() => [])));
+    const results = await withHardTimeout(
+      Promise.all(batch.map(q => searchQuery(q).catch(() => []))),
+      BATCH_HARD_TIMEOUT_MS,
+      null,
+    );
+    if (results === null) {
+      console.warn(`[naverNews] 배치 처리가 ${BATCH_HARD_TIMEOUT_MS / 1000}초를 넘겨 강제로 건너뜀: ${batch.join(', ')}`);
+      await sleep(QUERY_DELAY_MS);
+      continue;
+    }
 
     for (const items of results) {
       for (const norm of items) {
