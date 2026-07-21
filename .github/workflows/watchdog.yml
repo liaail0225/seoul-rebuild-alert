@@ -1,0 +1,32 @@
+name: watchdog
+# daily 워크플로가 GitHub Actions 자체 지연/장애로 09:00 KST(00:00 UTC)에 트리거되지 않는
+# 경우를 스스로 감지해 강제 재실행한다. 짧은 주기 cron이 GitHub에서 상대적으로 안정적으로
+# 도는 편이라, KST 06~10시 구간에만 20분마다 확인한다.
+on:
+  schedule:
+    - cron: '*/20 21-23,0-1 * * *'   # UTC 21~23시, 0~1시 = KST 06~10시
+  workflow_dispatch:
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: true
+
+permissions:
+  actions: write   # daily.yml을 workflow_dispatch로 강제 실행하는 데 필요
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: node src/jobs/watchdog.js
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
