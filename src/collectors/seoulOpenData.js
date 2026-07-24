@@ -38,11 +38,32 @@ export function parseProjectListHtml(html) {
   return out;
 }
 
+const FETCH_RETRIES = 3; // 일시적 네트워크 실패(예: GitHub Actions 러너에서 간헐적 fetch failed)는
+// 전체 daily 재실행 없이 여기서 자체 해결 — 워치독이 반복 강제실행하며 알림이 중복 발송되던
+// 사고(2026-07-24)의 재발 방지
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function fetchListPage(cpage) {
-  const url = `${LIST_URL}?cpage=${cpage}&pageSize=${PAGE_SIZE}`;
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20000) });
-  if (!res.ok) throw new Error(`정비몽땅 사업장 목록 요청 실패 (cpage=${cpage}): HTTP ${res.status}`);
-  return res.text();
+  let lastError;
+  for (let attempt = 1; attempt <= FETCH_RETRIES; attempt++) {
+    try {
+      const url = `${LIST_URL}?cpage=${cpage}&pageSize=${PAGE_SIZE}`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.text();
+    } catch (err) {
+      // err.cause에 실제 원인(ECONNRESET 등)이 담기는 경우가 많아 로그에 남겨 다음 장애 진단에 활용
+      lastError = err;
+      const causeText = err.cause ? ` (원인: ${err.cause.code || err.cause.message || err.cause})` : '';
+      console.warn(`[seoulOpenData] cpage=${cpage} 요청 실패 (${attempt}/${FETCH_RETRIES})${causeText}: ${err.message}`);
+      if (attempt < FETCH_RETRIES) await sleep(2000 * attempt);
+    }
+  }
+  const causeText = lastError.cause ? ` (원인: ${lastError.cause.code || lastError.cause.message || lastError.cause})` : '';
+  throw new Error(`정비몽땅 사업장 목록 요청 실패 (cpage=${cpage}, ${FETCH_RETRIES}회 재시도 후 포기)${causeText}: ${lastError.message}`);
 }
 
 // 재건축/소규모재건축만 남기는 순수 필터 함수 (테스트 대상)

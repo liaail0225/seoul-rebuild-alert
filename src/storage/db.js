@@ -159,6 +159,16 @@ export async function getFailedAlerts() {
   return ok(await supabase.from('alerts').select('*').eq('status', 'failed').limit(10));
 }
 
+// 오늘(KST 기준) 이미 이 유형의 알림이 발송됐는지 확인 — 콘텐츠 해시가 아닌 "하루 1회" 자체를 보장.
+// 워치독이 실패를 만나 daily를 재시도할 때, 재수집은 하되 다이제스트가 매번 새로 발송되는
+// 것을 막기 위해 도입(2026-07-24 스팸 사고 이후). isoDayStartUtc: 오늘 KST 00:00을 UTC로 표현한 시각.
+export async function alertSentToday(alertType, isoDayStartUtc) {
+  const d = ok(await supabase.from('alerts')
+    .select('id').eq('alert_type', alertType).eq('status', 'sent')
+    .gte('sent_at', isoDayStartUtc).limit(1));
+  return d.length > 0;
+}
+
 // ---------- collection_runs ----------
 export async function startRun(source) {
   return ok(await supabase.from('collection_runs').insert({ source }).select().single());

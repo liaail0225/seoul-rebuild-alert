@@ -15,6 +15,8 @@ import * as db from '../storage/db.js';
 const KST_OFFSET = 9 * 60 * 60 * 1000;
 const kstNow = () => new Date(Date.now() + KST_OFFSET);
 const dateLabel = () => kstNow().toISOString().slice(0, 10);
+// 오늘(KST) 00:00을 UTC ISO로 — "하루 1회만 발송" 가드에 사용
+const kstDayStartUtcIso = () => new Date(new Date(`${dateLabel()}T00:00:00Z`).getTime() - KST_OFFSET).toISOString();
 
 const errors = [];
 
@@ -174,7 +176,14 @@ async function main() {
   let digest = renderDigest(model, { dateLabel: dateLabel(), aiNewsSummary, aiOneLiners, stats });
   if (gapWarning) digest = `${gapWarning}\n\n${digest}`;
 
-  await sendAlert('daily_digest', digest);
+  // 하루 1회만 발송 — 워치독이 실패를 만나 재시도할 때 재수집은 하되(다음 시도에서 성공하도록)
+  // 다이제스트가 매번 새로 발송되는 것은 막는다(콘텐츠 해시 중복방지는 내용이 조금씩 달라
+  // 매번 통과되므로 별도 가드 필요, 2026-07-24 스팸 사고 이후 도입).
+  if (await db.alertSentToday('daily_digest', kstDayStartUtcIso())) {
+    console.log('[daily] 오늘 다이제스트가 이미 발송됨 — 재수집 결과만 반영하고 알림은 건너뜀');
+  } else {
+    await sendAlert('daily_digest', digest);
+  }
 
   // 이전 발송 실패분 재시도
   try {
