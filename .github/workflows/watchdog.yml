@@ -3,8 +3,9 @@ name: watchdog
 # 경우를 스스로 감지해 강제 재실행한다. 짧은 주기 cron이 GitHub에서 상대적으로 안정적으로
 # 도는 편이라, KST 06~10시 구간에만 20분마다 확인한다.
 on:
-  schedule:
-    - cron: '*/20 21-23,0-1 * * *'   # UTC 21~23시, 0~1시 = KST 06~10시
+  # 2026-07-24: pg_cron 워치독(Supabase)과 중복 발동해 daily.yml을 10분마다 재실행시켜
+  # 스팸성 다이제스트가 반복 발송되는 사고가 발생, schedule을 임시 비활성화함.
+  # 재설계 후 재활성화 예정 — DECISIONS.md D25 참고.
   workflow_dispatch:
 
 concurrency:
