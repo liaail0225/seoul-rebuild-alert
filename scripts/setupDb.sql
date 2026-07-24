@@ -98,11 +98,13 @@ create table if not exists alerts (
   content_hash  text not null,                 -- 같은 내용 재발송 방지
   body          text,
   status        text default 'pending',        -- pending|sent|failed
-  telegram_msg_id bigint,
+  telegram_msg_id bigint,                       -- 하위호환(단일 수신자 시절). 다중 수신자는 telegram_msg_ids 사용
+  telegram_msg_ids jsonb default '{}',           -- {chatId: messageId, ...} — 수신자별 메시지 ID (수정 발송용)
   sent_at       timestamptz,
   created_at    timestamptz default now(),
   unique (alert_type, content_hash)
 );
+alter table alerts add column if not exists telegram_msg_ids jsonb default '{}';
 
 -- 수집 실행 로그
 create table if not exists collection_runs (

@@ -9,13 +9,13 @@ import { detectSignals } from '../core/signals.js';
 import { isEarlyStage } from '../core/stages.js';
 import { buildDigestModel, renderDigest } from '../core/alertRules.js';
 import { summarizeArticlesBatch, oneLinerForPriority } from '../ai/openai.js';
-import { sendAlert } from '../notify/telegram.js';
+import { sendAlert, sendOrUpdateDailyDigest } from '../notify/telegram.js';
 import * as db from '../storage/db.js';
 
 const KST_OFFSET = 9 * 60 * 60 * 1000;
 const kstNow = () => new Date(Date.now() + KST_OFFSET);
 const dateLabel = () => kstNow().toISOString().slice(0, 10);
-// 오늘(KST) 00:00을 UTC ISO로 — "하루 1회만 발송" 가드에 사용
+// 오늘(KST) 00:00을 UTC ISO로 — "오늘 누적" 조회 기준 시각
 const kstDayStartUtcIso = () => new Date(new Date(`${dateLabel()}T00:00:00Z`).getTime() - KST_OFFSET).toISOString();
 
 const errors = [];
@@ -124,7 +124,42 @@ async function stepNews(projects, watchlist) {
   });
 }
 
-// 4) 크론 누락 감지: 직전 성공 daily run과 26시간 이상 벌어졌으면 경고
+// 4) 다이제스트 대상 = 오늘(KST) 누적 전체 — 이번 실행에서 새로 찾은 것만이 아니라.
+// 워치독이 실패를 만나 같은 날 여러 번 재시도해도, 최종 다이제스트가 그날 발견한 모든
+// 내용을 빠짐없이 반영하도록 하기 위함(2026-07-24, 재시도 시 일부 기사가 누락되던 문제 수정).
+async function buildTodayModel(projects, watchlist) {
+  const dayStart = kstDayStartUtcIso();
+  const [historyRows, noticeRows, articleRows] = await Promise.all([
+    db.getStageChangesSince(dayStart),
+    db.getNoticesSince(dayStart),
+    db.getArticlesSince(dayStart),
+  ]);
+
+  const newProjects = historyRows
+    .filter(h => h.prev_stage === null)
+    .map(h => ({ gu: h.projects?.gu, name: h.projects?.name, stage: h.new_stage }));
+  const stageChanges = historyRows
+    .filter(h => h.prev_stage !== null)
+    .map(h => ({ projectId: h.project_id, gu: h.projects?.gu, name: h.projects?.name, prevStage: h.prev_stage, newStage: h.new_stage }));
+
+  const earlyIds = new Set(projects.filter(p => isEarlyStage(p.stage)).map(p => p.id));
+  const articles = articleRows.map(a => ({
+    ...a,
+    signals: detectSignals(a.title), // articles 테이블엔 signals가 저장 안 되어 제목에서 재계산(순수 함수라 저비용)
+    matchedEarlyStage: (a.matched_project_ids || []).some(id => earlyIds.has(id)),
+  }));
+
+  const model = buildDigestModel({
+    newProjects, stageChanges, notices: noticeRows, articles,
+    watchProjectIds: watchlist.map(w => w.project_id).filter(Boolean),
+  });
+  return {
+    model,
+    stats: `수집(오늘 누적): 단계변화 ${stageChanges.length} · 신규사업장 ${newProjects.length} · 고시 ${noticeRows.length} · 기사 ${articleRows.length}`,
+  };
+}
+
+// 5) 크론 누락 감지: 직전 성공 daily run과 26시간 이상 벌어졌으면 경고
 async function detectGap() {
   const runs = await db.getRecentRuns(50);
   const prevOk = runs.find(r => r.source === 'daily' && r.status === 'ok');
@@ -143,14 +178,8 @@ async function main() {
   const noticeResult = await stepNotices(projects);
   const newsResult = await stepNews(projects, watchlist);
 
-  // 다이제스트 조립 (규칙 기반)
-  const model = buildDigestModel({
-    newProjects: projResult?.newProjects || [],
-    stageChanges: projResult?.stageChanges || [],
-    notices: noticeResult?.fresh || [],
-    articles: newsResult?.fresh || [],
-    watchProjectIds: watchlist.map(w => w.project_id).filter(Boolean),
-  });
+  // 다이제스트 조립 (규칙 기반, 오늘 누적 전체 대상)
+  const { model, stats } = await buildTodayModel(projects, watchlist);
 
   // AI 제안 (실패해도 다이제스트는 발송)
   let aiNewsSummary = null, aiOneLiners = null;
@@ -172,18 +201,12 @@ async function main() {
     errors.push(`AI: ${e.message}`);
   }
 
-  const stats = `수집: 단계변화 ${(projResult?.stageChanges || []).length} · 신규사업장 ${(projResult?.newProjects || []).length} · 고시 ${noticeResult?.itemsNew ?? '실패'} · 기사 ${newsResult?.itemsNew ?? '실패'}`;
   let digest = renderDigest(model, { dateLabel: dateLabel(), aiNewsSummary, aiOneLiners, stats });
   if (gapWarning) digest = `${gapWarning}\n\n${digest}`;
 
-  // 하루 1회만 발송 — 워치독이 실패를 만나 재시도할 때 재수집은 하되(다음 시도에서 성공하도록)
-  // 다이제스트가 매번 새로 발송되는 것은 막는다(콘텐츠 해시 중복방지는 내용이 조금씩 달라
-  // 매번 통과되므로 별도 가드 필요, 2026-07-24 스팸 사고 이후 도입).
-  if (await db.alertSentToday('daily_digest', kstDayStartUtcIso())) {
-    console.log('[daily] 오늘 다이제스트가 이미 발송됨 — 재수집 결과만 반영하고 알림은 건너뜀');
-  } else {
-    await sendAlert('daily_digest', digest);
-  }
+  // 하루 1건만 유지 — 재시도가 있어도 새 메시지를 또 보내지 않고 기존 메시지를 최신 누적
+  // 내용으로 수정한다(스팸 방지 + 재시도로 찾은 내용 누락 방지, 2026-07-24 도입).
+  await sendOrUpdateDailyDigest(digest, dateLabel());
 
   // 이전 발송 실패분 재시도
   try {
